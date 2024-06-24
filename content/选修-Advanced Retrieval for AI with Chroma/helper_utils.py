@@ -2,7 +2,7 @@ import chromadb
 import re
 import numpy as np
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from tqdm import tqdm
 
@@ -42,45 +42,20 @@ def _chunk_texts(texts, langcode="zh"):
         list: List of chunked texts. 分块后的文本。
     """
 
-    assert langcode in ['zh', 'en'], "langcode must be 'zh' or 'en'"
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    character_splitter = RecursiveCharacterTextSplitter(
+        #separators=["\n\n", "\n", ". ", " ", ""],英文文档的分割符示例
+        separators=["\n\n", "\n", "。", "，", "、", "；", ""],
+        chunk_size=1000,
+        chunk_overlap=0
+    )
+    character_split_texts = character_splitter.split_text('\n\n'.join(texts))
 
-    # 1.用\n\n拼接所有文本；2.字符级分割，分割成多个块(chunk)；3. 对每一个块分割成token
-    if langcode == 'zh':
-        # 中文句子分割
-        def chinese_sentence_segmentation(text):
-            # 使用正则表达式匹配中文句子的分割符号，将中文分句
-            sentences = re.split(r'[，。！？]', text)
-            return [s.strip() for s in sentences if s.strip()]
-        
-        character_split_texts = []
-        for text in texts:
-            # 每个段落逐个分割句子
-            character_split_texts += chinese_sentence_segmentation(text)
-    else:
-        # 英文句子分割
-        character_splitter = RecursiveCharacterTextSplitter(
-            separators=["\n\n", "\n", ". ", " ", ""], # 英文
-            # separators=["\n\n", "\n", "。", "，", ""], # 中文
-            chunk_size=1000,
-            chunk_overlap=0
-        )
-        character_split_texts = character_splitter.split_text('\n\n'.join(texts))
+    print(word_wrap(character_split_texts[10]))
+    print(f"\nTotal chunks: {len(character_split_texts)}")
+    return character_split_texts
 
-    # Split each character-based chunk into tokens
-    token_splitter = SentenceTransformersTokenTextSplitter(chunk_overlap=0, tokens_per_chunk=256)
-
-    token_split_texts = []
-    if langcode == "zh":
-        # 中文分句后不再进一步分割，保留完整语义信息，方便嵌入查询
-        token_split_texts = character_split_texts
-    else:
-        # 英文分句后继续分割token（实际上这一步分割得很少）
-        for text in character_split_texts:
-            token_split_texts += token_splitter.split_text(text)
-
-    return token_split_texts
-
-def load_chroma(filename, collection_name, embedding_function, langcode='zh'):
+def load_chroma(filename, collection_name, embedding_function="", langcode='zh'):
     """
     加载PDF文件，分块，初始化chroma集合
     Load text from a PDF file, chunk it, create a collection, add the chunks, and return the collection.
@@ -102,10 +77,10 @@ def load_chroma(filename, collection_name, embedding_function, langcode='zh'):
 
     # Create a new ChromaDB client
     chroma_client = chromadb.Client()
-
+    chroma_client.get_or_create_collection(name=collection_name)
+    chroma_client.delete_collection("beijing_annual_report_2024")
     # Create a new collection with the specified name and embedding function
-    chroma_collection = chroma_client.create_collection(name=collection_name, 
-                                                        embedding_function=embedding_function)
+    chroma_collection = chroma_client.create_collection(name=collection_name)
 
     # Generate IDs for the chunks
     ids = [str(i) for i in range(len(chunks))]
